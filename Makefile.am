@@ -1,9 +1,9 @@
 include Makefile.am.in
 
 ACLOCAL_AMFLAGS = -I m4 ${ACLOCAL_FLAGS}
-SUBDIRS = . daxctl/lib ndctl/lib ndctl daxctl
+SUBDIRS = . cxl/lib daxctl/lib ndctl/lib cxl ndctl daxctl
 if ENABLE_DOCS
-SUBDIRS += Documentation/ndctl Documentation/daxctl
+SUBDIRS += Documentation/ndctl Documentation/daxctl Documentation/cxl
 endif
 SUBDIRS += test
 
