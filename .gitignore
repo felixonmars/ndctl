@@ -15,8 +15,10 @@ Makefile.in
 *.1
 Documentation/daxctl/asciidoc.conf
 Documentation/ndctl/asciidoc.conf
+Documentation/cxl/asciidoc.conf
 Documentation/daxctl/asciidoctor-extensions.rb
 Documentation/ndctl/asciidoctor-extensions.rb
+Documentation/cxl/asciidoctor-extensions.rb
 .dirstamp
 daxctl/config.h
 daxctl/daxctl
