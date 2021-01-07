@@ -24,3 +24,15 @@ global:
 	cxl_memdev_get_pmem_size;
 	cxl_memdev_get_ram_size;
 } LIBCXL_1;
+
+LIBCXL_3 {
+global:
+	cxl_cmd_new_identify;
+	cxl_cmd_new_raw;
+	cxl_cmd_new_get_supported_logs;
+	cxl_cmd_new_get_log;
+	cxl_cmd_attach_payloads;
+	cxl_cmd_ref;
+	cxl_cmd_unref;
+	cxl_cmd_submit;
+} LIBCXL_2;

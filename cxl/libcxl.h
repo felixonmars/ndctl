@@ -45,6 +45,17 @@ unsigned long long cxl_memdev_get_ram_size(struct cxl_memdev *memdev);
              memdev != NULL; \
              memdev = cxl_memdev_get_next(memdev))
 
+struct cxl_cmd;
+struct cxl_cmd *cxl_cmd_new_identify(struct cxl_memdev *memdev);
+struct cxl_cmd *cxl_cmd_new_raw(struct cxl_memdev *memdev);
+struct cxl_cmd *cxl_cmd_new_get_supported_logs(struct cxl_memdev *memdev);
+struct cxl_cmd *cxl_cmd_new_get_log(struct cxl_memdev *memdev);
+int cxl_cmd_attach_payloads(struct cxl_cmd *cmd,
+		void *in, int size_in, void *out, int size_out);
+void cxl_cmd_ref(struct cxl_cmd *cmd);
+void cxl_cmd_unref(struct cxl_cmd *cmd);
+int cxl_cmd_submit(struct cxl_cmd *cmd);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

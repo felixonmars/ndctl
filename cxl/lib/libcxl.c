@@ -9,13 +9,16 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/ioctl.h>
 #include <sys/sysmacros.h>
 #include <uuid/uuid.h>
 #include <ccan/list/list.h>
 #include <ccan/array_size/array_size.h>
 
+#include <cxl_mem.h>
 #include <util/log.h>
 #include <util/sysfs.h>
+#include <util/bitmap.h>
 #include <cxl/libcxl.h>
 #include "private.h"
 
@@ -315,4 +318,353 @@ CXL_EXPORT unsigned long long cxl_memdev_get_pmem_size(struct cxl_memdev *memdev
 CXL_EXPORT unsigned long long cxl_memdev_get_ram_size(struct cxl_memdev *memdev)
 {
 	return memdev->ram_size;
+}
+
+CXL_EXPORT void cxl_cmd_unref(struct cxl_cmd *cmd)
+{
+	if (!cmd)
+		return;
+	if (--cmd->refcount == 0) {
+		free(cmd->query_cmd);
+		free(cmd->send_cmd);
+		free(cmd->input_payload);
+		free(cmd->output_payload);
+		free(cmd);
+	}
+}
+
+CXL_EXPORT void cxl_cmd_ref(struct cxl_cmd *cmd)
+{
+	cmd->refcount++;
+}
+
+static int cxl_cmd_alloc_query(struct cxl_cmd *cmd, int num_cmds)
+{
+	struct cxl_mem_query_commands *qcmd;
+	size_t size;
+
+	if (!cmd)
+		return -EINVAL;
+
+	if (cmd->query_cmd != NULL)
+		free(cmd->query_cmd);
+
+	size = sizeof(struct cxl_mem_query_commands) +
+			(num_cmds * sizeof(struct cxl_command_info));
+	cmd->query_cmd = calloc(1, size);
+	if (!cmd->query_cmd)
+		return -ENOMEM;
+
+	qcmd = cmd->query_cmd;
+	qcmd->n_commands = num_cmds;
+
+	return 0;
+}
+
+static struct cxl_cmd *cxl_cmd_new(struct cxl_memdev *memdev)
+{
+	struct cxl_cmd *cmd;
+	size_t size;
+
+	size = sizeof(*cmd);
+	cmd = calloc(1, size);
+	if (!cmd)
+		return NULL;
+
+	cxl_cmd_ref(cmd);
+	cmd->memdev = memdev;
+
+	return cmd;
+}
+
+static int __do_cmd(struct cxl_cmd *cmd, int ioctl_cmd, int fd)
+{
+	struct cxl_memdev *memdev = cmd->memdev;
+	struct cxl_ctx *ctx = cxl_memdev_get_ctx(memdev);
+	const char *devname = cxl_memdev_get_devname(memdev);
+	char *cmd_name;
+	void *cmd_buf;
+	int rc;
+
+	switch (ioctl_cmd) {
+	case CXL_MEM_QUERY_COMMANDS:
+		cmd_buf = cmd->query_cmd;
+		cmd_name = "query";
+		break;
+	case CXL_MEM_SEND_COMMAND:
+		cmd_buf = cmd->send_cmd;
+		cmd_name = "send";
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	rc = ioctl(fd, ioctl_cmd, cmd_buf);
+	if (rc < 0)
+		rc = -errno;
+
+	info(ctx, "%s: cmd: %s, status: %s\n", devname,
+		cmd_name, (rc < 0) ? strerror(-rc) : "success");
+
+	return rc;
+}
+
+static int do_cmd(struct cxl_cmd *cmd, int ioctl_cmd)
+{
+	char path[20];
+	struct stat st;
+	unsigned int major, minor;
+	int rc = 0, fd, len = sizeof(path);
+	struct cxl_memdev *memdev = cmd->memdev;
+	struct cxl_ctx *ctx = cxl_memdev_get_ctx(memdev);
+	const char *devname = cxl_memdev_get_devname(memdev);
+
+	major = cxl_memdev_get_major(memdev);
+	minor = cxl_memdev_get_minor(memdev);
+
+	if (snprintf(path, len, "/dev/cxl/%s", devname) >= len) {
+		rc = -EINVAL;
+		goto out;
+	}
+
+	fd = open(path, O_RDWR);
+	if (fd < 0) {
+		err(ctx, "failed to open %s: %s\n", path, strerror(errno));
+		rc = -errno;
+		goto out;
+	}
+
+	if (fstat(fd, &st) >= 0 && S_ISCHR(st.st_mode)
+			&& major(st.st_rdev) == major
+			&& minor(st.st_rdev) == minor) {
+		rc = __do_cmd(cmd, ioctl_cmd, fd);
+	} else {
+		err(ctx, "failed to validate %s as a CXL memdev node\n", path);
+		rc = -ENXIO;
+	}
+	close(fd);
+ out:
+	return rc;
+}
+
+static int alloc_do_query(struct cxl_cmd *cmd, int num_cmds)
+{
+	struct cxl_ctx *ctx = cxl_memdev_get_ctx(cmd->memdev);
+	int rc;
+
+	rc = cxl_cmd_alloc_query(cmd, num_cmds);
+	if (rc)
+		return rc;
+
+	rc = do_cmd(cmd, CXL_MEM_QUERY_COMMANDS);
+	if (rc < 0)
+		err(ctx, "%s: query commands failed: %s\n",
+			cxl_memdev_get_devname(cmd->memdev),
+			strerror(-rc));
+	return rc;
+}
+
+static int cxl_cmd_do_query(struct cxl_cmd *cmd)
+{
+	struct cxl_memdev *memdev = cmd->memdev;
+	struct cxl_ctx *ctx = cxl_memdev_get_ctx(memdev);
+	const char *devname = cxl_memdev_get_devname(memdev);
+	int rc, n_commands;
+
+	switch (cmd->query_status) {
+	case CXL_CMD_QUERY_OK:
+		return 0;
+	case CXL_CMD_QUERY_UNSUPPORTED:
+		return -EOPNOTSUPP;
+	case CXL_CMD_QUERY_NOT_RUN:
+		break;
+	default:
+		err(ctx, "%s: Unknown query_status %d\n",
+			devname, cmd->query_status);
+		return -EINVAL;
+	}
+
+	rc = alloc_do_query(cmd, 0);
+	if (rc)
+		return rc;
+
+	n_commands = cmd->query_cmd->n_commands;
+	dbg(ctx, "%s: supports %d commands\n", devname, n_commands);
+
+	return alloc_do_query(cmd, n_commands);
+}
+
+static int cxl_cmd_validate(struct cxl_cmd *cmd, u32 cmd_id)
+{
+	struct cxl_memdev *memdev = cmd->memdev;
+	struct cxl_mem_query_commands *query = cmd->query_cmd;
+	const char *devname = cxl_memdev_get_devname(memdev);
+	struct cxl_ctx *ctx = cxl_memdev_get_ctx(memdev);
+	u32 i;
+
+	for (i = 0; i < query->n_commands; i++) {
+		struct cxl_command_info *cinfo = &query->commands[i];
+		const char *cmd_name = command_names[cinfo->id].name;
+
+		if (cinfo->id != cmd_id)
+			continue;
+
+		dbg(ctx, "%s: %s: in: %d, out %d, flags: %#08x\n",
+			devname, cmd_name, cinfo->size_in,
+			cinfo->size_out, cinfo->flags);
+
+		if (cinfo->flags & CXL_MEM_COMMAND_FLAG_KERNEL) {
+			err(ctx, "%s: %s: reserved for kernel use\n",
+				devname, cmd_name);
+			return -EPERM;
+		}
+		cmd->query_idx = i;
+		cmd->query_status = CXL_CMD_QUERY_OK;
+		return 0;
+	}
+	cmd->query_status = CXL_CMD_QUERY_UNSUPPORTED;
+	return -EOPNOTSUPP;
+}
+
+CXL_EXPORT int cxl_cmd_attach_payloads(struct cxl_cmd *cmd,
+		void *in, int size_in,
+		void *out, int size_out)
+{
+	struct cxl_memdev *memdev = cmd->memdev;
+
+	if (size_in > memdev->payload_max || size_out > memdev->payload_max)
+		return -EINVAL;
+
+	if (size_in > 0) {
+		cmd->send_cmd->in_payload = (u64)in;
+		cmd->send_cmd->size_in = size_in;
+	}
+	if (size_out > 0) {
+		cmd->send_cmd->out_payload = (u64)out;
+		cmd->send_cmd->size_out = size_out;
+	}
+
+	return 0;
+}
+
+static int cxl_cmd_alloc_send(struct cxl_cmd *cmd, u32 cmd_id)
+{
+	struct cxl_mem_query_commands *query = cmd->query_cmd;
+	struct cxl_command_info *cinfo = &query->commands[cmd->query_idx];
+	size_t size;
+
+	if (!query)
+		return -EINVAL;
+
+	size = sizeof(struct cxl_send_command);
+	cmd->send_cmd = calloc(1, size);
+	if (!cmd->send_cmd)
+		return -ENOMEM;
+
+	if (cinfo->id != cmd_id)
+		return -EINVAL;
+
+	cmd->send_cmd->id = cmd_id;
+
+	if (cinfo->size_in > 0) {
+		cmd->input_payload = calloc(1, cinfo->size_in);
+		if (!cmd->input_payload)
+			return -ENOMEM;
+	}
+	if (cinfo->size_out > 0) {
+		cmd->output_payload = calloc(1, cinfo->size_out);
+		if (!cmd->output_payload)
+			return -ENOMEM;
+	}
+	cxl_cmd_attach_payloads(cmd, cmd->input_payload, cinfo->size_in,
+			cmd->output_payload, cinfo->size_out);
+
+	return 0;
+}
+
+static struct cxl_cmd *cxl_cmd_new_generic(struct cxl_memdev *memdev,
+		u32 cmd_id)
+{
+	const char *devname = cxl_memdev_get_devname(memdev);
+	struct cxl_ctx *ctx = cxl_memdev_get_ctx(memdev);
+	struct cxl_cmd *cmd;
+	int rc;
+
+	cmd = cxl_cmd_new(memdev);
+	if (!cmd)
+		return NULL;
+
+	rc = cxl_cmd_do_query(cmd);
+	if (rc) {
+		err(ctx, "%s: query returned: %s\n", devname, strerror(-rc));
+		goto fail;
+	}
+
+	rc = cxl_cmd_validate(cmd, cmd_id);
+	if (rc) {
+		errno = -rc;
+		goto fail;
+	}
+
+	rc = cxl_cmd_alloc_send(cmd, cmd_id);
+	if (rc) {
+		errno = -rc;
+		goto fail;
+	}
+
+	return cmd;
+
+fail:
+	cxl_cmd_unref(cmd);
+	return NULL;
+}
+
+CXL_EXPORT struct cxl_cmd *cxl_cmd_new_identify(struct cxl_memdev *memdev)
+{
+	return cxl_cmd_new_generic(memdev, CXL_MEM_COMMAND_ID_IDENTIFY);
+}
+
+CXL_EXPORT struct cxl_cmd *cxl_cmd_new_raw(struct cxl_memdev *memdev)
+{
+	return cxl_cmd_new_generic(memdev, CXL_MEM_COMMAND_ID_RAW);
+}
+
+CXL_EXPORT struct cxl_cmd *cxl_cmd_new_get_supported_logs(
+		struct cxl_memdev *memdev)
+{
+	return cxl_cmd_new_generic(memdev,
+			CXL_MEM_COMMAND_ID_GET_SUPPORTED_LOGS);
+}
+
+CXL_EXPORT struct cxl_cmd *cxl_cmd_new_get_log(struct cxl_memdev *memdev)
+{
+	return cxl_cmd_new_generic(memdev, CXL_MEM_COMMAND_ID_GET_LOG);
+}
+
+CXL_EXPORT int cxl_cmd_submit(struct cxl_cmd *cmd)
+{
+	struct cxl_memdev *memdev = cmd->memdev;
+	const char *devname = cxl_memdev_get_devname(memdev);
+	struct cxl_ctx *ctx = cxl_memdev_get_ctx(memdev);
+	int rc;
+
+	switch (cmd->query_status) {
+	case CXL_CMD_QUERY_OK:
+		break;
+	case CXL_CMD_QUERY_UNSUPPORTED:
+		return -EOPNOTSUPP;
+	case CXL_CMD_QUERY_NOT_RUN:
+		return -EINVAL;
+	default:
+		err(ctx, "%s: Unknown query_status %d\n",
+			devname, cmd->query_status);
+		return -EINVAL;
+	}
+
+	rc = do_cmd(cmd, CXL_MEM_SEND_COMMAND);
+	if (rc < 0)
+		err(ctx, "%s: send command failed: %s\n",
+			devname, strerror(-rc));
+	cmd->status = cmd->send_cmd->retval;
+	return rc;
 }
