@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <limits.h>
+#include <util/log.h>
 #include <util/json.h>
 #include <util/filter.h>
 #include <json-c/json.h>
@@ -16,6 +17,7 @@ static struct {
 	bool memdevs;
 	bool idle;
 	bool human;
+	bool verbose;
 } list;
 
 static unsigned long listopts_to_flags(void)
@@ -47,6 +49,19 @@ static int num_list_flags(void)
 	return list.memdevs;
 }
 
+struct cxl_cmd *memdev_identify(struct cxl_memdev *memdev)
+{
+	struct cxl_cmd *id;
+
+	id = cxl_cmd_new_identify(memdev);
+	if (!id)
+		return NULL;
+
+	if (cxl_cmd_submit(id) != 0)
+		return NULL;
+	return id;
+}
+
 int cmd_list(int argc, const char **argv, struct cxl_ctx *ctx)
 {
 	const struct option options[] = {
@@ -56,7 +71,9 @@ int cmd_list(int argc, const char **argv, struct cxl_ctx *ctx)
 			    "include CXL memory device info"),
 		OPT_BOOLEAN('i', "idle", &list.idle, "include idle devices"),
 		OPT_BOOLEAN('u', "human", &list.human,
-				"use human friendly number formats "),
+				"use human friendly number formats"),
+		OPT_BOOLEAN('v', "verbose", &list.verbose,
+				"enable verbose output"),
 		OPT_END(),
 	};
 	const char * const u[] = {
@@ -80,27 +97,35 @@ int cmd_list(int argc, const char **argv, struct cxl_ctx *ctx)
 
 	list_flags = listopts_to_flags();
 
+	if (list.verbose)
+		cxl_set_log_priority(ctx, LOG_DEBUG);
+
 	cxl_memdev_foreach(ctx, memdev) {
 		struct json_object *jdev = NULL;
+		struct cxl_cmd *id;
 
 		if (!util_cxl_memdev_filter(memdev, param.memdev))
 			continue;
 
 		if (list.memdevs) {
+			id = memdev_identify(memdev);
 			if (!jdevs) {
 				jdevs = json_object_new_array();
 				if (!jdevs) {
 					fail("\n");
+					cxl_cmd_unref(id);
 					continue;
 				}
 			}
 
-			jdev = util_cxl_memdev_to_json(memdev, list_flags);
+			jdev = util_cxl_memdev_to_json(memdev, id, list_flags);
 			if (!jdev) {
 				fail("\n");
+				cxl_cmd_unref(id);
 				continue;
 			}
 			json_object_array_add(jdevs, jdev);
+			cxl_cmd_unref(id);
 		}
 	}
 

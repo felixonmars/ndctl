@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <ndctl/libndctl.h>
 #include <daxctl/libdaxctl.h>
+#include <cxl/libcxl.h>
 #include <ccan/short_types/short_types.h>
 
 enum util_json_flags {
@@ -57,5 +58,5 @@ struct json_object *util_dimm_firmware_to_json(struct ndctl_dimm *dimm,
 struct json_object *util_region_capabilities_to_json(struct ndctl_region *region);
 struct cxl_memdev;
 struct json_object *util_cxl_memdev_to_json(struct cxl_memdev *memdev,
-		unsigned long flags);
+		struct cxl_cmd *id, unsigned long flags);
 #endif /* __NDCTL_JSON_H__ */

@@ -1432,10 +1432,11 @@ struct json_object *util_badblock_rec_to_json(u64 block, u64 count,
 }
 
 struct json_object *util_cxl_memdev_to_json(struct cxl_memdev *memdev,
-		unsigned long flags)
+		struct cxl_cmd *id, unsigned long flags)
 {
 	const char *devname = cxl_memdev_get_devname(memdev);
 	struct json_object *jdev, *jobj;
+	char fw_rev[0x10];
 
 	jdev = json_object_new_object();
 	if (!devname || !jdev)
@@ -1452,6 +1453,25 @@ struct json_object *util_cxl_memdev_to_json(struct cxl_memdev *memdev,
 	jobj = util_json_object_size(cxl_memdev_get_ram_size(memdev), flags);
 	if (jobj)
 		json_object_object_add(jdev, "ram_size", jobj);
+
+	if (!id)
+		return jdev;
+
+	if (cxl_cmd_identify_get_fw_rev(id, fw_rev, 0x10) == 0) {
+		jobj = json_object_new_string(fw_rev);
+		if (jobj)
+			json_object_object_add(jdev, "fw_revision", jobj);
+	}
+
+	jobj = util_json_object_size(cxl_cmd_identify_get_partition_align(id),
+			flags);
+	if (jobj)
+		json_object_object_add(jdev, "partition_align", jobj);
+
+	jobj = util_json_object_size(cxl_cmd_identify_get_lsa_size(id),
+			flags);
+	if (jobj)
+		json_object_object_add(jdev, "lsa_size", jobj);
 
 	return jdev;
 }
