@@ -35,4 +35,7 @@ global:
 	cxl_cmd_ref;
 	cxl_cmd_unref;
 	cxl_cmd_submit;
+	cxl_cmd_identify_get_fw_rev;
+	cxl_cmd_identify_get_partition_align;
+	cxl_cmd_identify_get_lsa_size;
 } LIBCXL_2;

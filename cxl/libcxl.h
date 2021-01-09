@@ -55,6 +55,9 @@ int cxl_cmd_attach_payloads(struct cxl_cmd *cmd,
 void cxl_cmd_ref(struct cxl_cmd *cmd);
 void cxl_cmd_unref(struct cxl_cmd *cmd);
 int cxl_cmd_submit(struct cxl_cmd *cmd);
+int cxl_cmd_identify_get_fw_rev(struct cxl_cmd *cmd, char *fw_rev, int fw_len);
+unsigned long long cxl_cmd_identify_get_partition_align(struct cxl_cmd *cmd);
+unsigned int cxl_cmd_identify_get_lsa_size(struct cxl_cmd *cmd);
 
 #ifdef __cplusplus
 } /* extern "C" */
