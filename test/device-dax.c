@@ -90,7 +90,7 @@ static void sigbus(int sig, siginfo_t *siginfo, void *d)
 #define VERIFY_TIME(x) (suseconds_t) ((ALIGN(x, SZ_2M) / SZ_4K) * 60)
 
 static int verify_data(struct daxctl_dev *dev, char *dax_buf,
-		unsigned long align, int salt, struct ndctl_test *test)
+		unsigned long align, int salt, struct test_ctx *test)
 {
 	struct timeval tv1, tv2, tv_diff;
 	unsigned long i;
@@ -129,7 +129,7 @@ static int verify_data(struct daxctl_dev *dev, char *dax_buf,
 }
 
 static int __test_device_dax(unsigned long align, int loglevel,
-		struct ndctl_test *test, struct ndctl_ctx *ctx)
+		struct test_ctx *test, struct ndctl_ctx *ctx)
 {
 	unsigned long i;
 	struct sigaction act;
@@ -361,8 +361,8 @@ static int __test_device_dax(unsigned long align, int loglevel,
 	return rc;
 }
 
-static int test_device_dax(int loglevel, struct ndctl_test *test,
-		struct ndctl_ctx *ctx)
+static int test_device_dax(int loglevel, struct test_ctx *test,
+			   struct ndctl_ctx *ctx)
 {
 	unsigned long i, aligns[] = { SZ_4K, SZ_2M, SZ_1G };
 	int rc;
@@ -378,7 +378,7 @@ static int test_device_dax(int loglevel, struct ndctl_test *test,
 
 int __attribute__((weak)) main(int argc, char *argv[])
 {
-	struct ndctl_test *test = ndctl_test_new(0);
+	struct test_ctx *test = ndctl_test_new(0);
 	struct ndctl_ctx *ctx;
 	int rc;
 
