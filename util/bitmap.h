@@ -3,10 +3,33 @@
 #ifndef _NDCTL_BITMAP_H_
 #define _NDCTL_BITMAP_H_
 
+#include <linux/const.h>
 #include <util/size.h>
+#include <util/util.h>
 #include <ccan/short_types/short_types.h>
 
+#ifndef _UL
+#define _UL(x)		(_AC(x, UL))
+#endif
+#ifndef _ULL
+#define _ULL(x)		(_AC(x, ULL))
+#endif
+
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
+#define UL(x)		(_UL(x))
+#define ULL(x)		(_ULL(x))
+
+/* GENMASK() and its dependencies copied from include/linux/{bits.h, const.h} */
+#define __is_constexpr(x) \
+	(sizeof(int) == sizeof(*(8 ? ((void *)((long)(x) * 0l)) : (int *)8)))
+#define GENMASK_INPUT_CHECK(h, l) \
+	(BUILD_BUG_ON_ZERO(__builtin_choose_expr( \
+		__is_constexpr((l) > (h)), (l) > (h), 0)))
+#define __GENMASK(h, l) \
+	(((~UL(0)) - (UL(1) << (l)) + 1) & \
+	 (~UL(0) >> (BITS_PER_LONG - 1 - (h))))
+#define GENMASK(h, l) \
+	(GENMASK_INPUT_CHECK(h, l) + __GENMASK(h, l))
 
 #define BIT(nr)			(1UL << (nr))
 #define BIT_MASK(nr)		(1UL << ((nr) % BITS_PER_LONG))
