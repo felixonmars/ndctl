@@ -75,3 +75,8 @@ global:
 	cxl_cmd_new_read_label;
 	cxl_cmd_read_label_get_payload;
 } LIBCXL_2;
+
+LIBCXL_4 {
+global:
+	cxl_memdev_get_label_size;
+} LIBCXL_3;
