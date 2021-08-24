@@ -125,6 +125,7 @@ int main(int argc, const char **argv)
 	rc = ndctl_new(&ctx);
 	if (rc)
 		goto out;
+	ndctl_set_configs_dir(&ctx, NDCTL_CONF_DIR);
 	main_handle_internal_command(argc, argv, ctx, commands,
 			ARRAY_SIZE(commands), PROG_NDCTL);
 	ndctl_unref(ctx);

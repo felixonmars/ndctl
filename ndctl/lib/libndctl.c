@@ -24,6 +24,7 @@
 #include <util/util.h>
 #include <util/size.h>
 #include <util/sysfs.h>
+#include <util/strbuf.h>
 #include <ndctl/libndctl.h>
 #include <ndctl/namespace.h>
 #include <daxctl/libdaxctl.h>
@@ -265,6 +266,58 @@ NDCTL_EXPORT void ndctl_set_userdata(struct ndctl_ctx *ctx, void *userdata)
 	ctx->userdata = userdata;
 }
 
+static int filter_conf(const struct dirent *dir)
+{
+	if (!dir)
+		return 0;
+
+	if (dir->d_type == DT_REG) {
+		const char *ext = strrchr(dir->d_name, '.');
+		if ((!ext) || (ext == dir->d_name))
+			return 0;
+		if (strcmp(ext, ".conf") == 0)
+			return 1;
+	}
+
+	return 0;
+}
+
+NDCTL_EXPORT void ndctl_set_configs_dir(struct ndctl_ctx **ctx, char *conf_dir)
+{
+	struct dirent **namelist;
+	struct strbuf value = STRBUF_INIT;
+	int rc;
+
+	if ((!ctx) || (!conf_dir))
+		return;
+
+	rc = scandir(conf_dir, &namelist, filter_conf, alphasort);
+	if (rc == -1) {
+		if (errno != ENOENT)
+			err(*ctx, "scandir for configs failed: %s\n",
+				strerror(errno));
+		return;
+	}
+
+	while (rc--) {
+		if (value.len)
+			strbuf_addstr(&value, " ");
+		strbuf_addstr(&value, conf_dir);
+		strbuf_addstr(&value, "/");
+		strbuf_addstr(&value, namelist[rc]->d_name);
+		free(namelist[rc]);
+	}
+	(*ctx)->configs = strbuf_detach(&value, NULL);
+	free(namelist);
+}
+
+NDCTL_EXPORT const char *ndctl_get_configs_dir(struct ndctl_ctx *ctx)
+{
+	if (ctx == NULL)
+		return NULL;
+	return ctx->configs;
+}
+
 /**
  * ndctl_new - instantiate a new library context
  * @ctx: context to establish
@@ -331,6 +384,7 @@ NDCTL_EXPORT int ndctl_new(struct ndctl_ctx **ctx)
 	c->daxctl_ctx = daxctl_ctx;
 
 	return 0;
+
  err_ctx:
 	daxctl_unref(daxctl_ctx);
  err_daxctl:
