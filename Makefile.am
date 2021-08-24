@@ -85,6 +85,10 @@ libutil_a_SOURCES = \
 	util/size.h \
 	util/main.h \
 	util/filter.h \
-	util/bitmap.h
+	util/bitmap.h \
+	util/dictionary.c \
+	util/dictionary.h \
+	util/iniparser.c \
+	util/iniparser.h
 
 nobase_include_HEADERS = daxctl/libdaxctl.h
