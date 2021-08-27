@@ -19,6 +19,8 @@ libndctl_la_SOURCES =\
 	../../util/wrapper.c \
 	../../util/usage.c \
 	../../util/fletcher.h \
+	../../util/parse-configs.h \
+	../../util/parse-configs.c \
 	dimm.c \
 	inject.c \
 	nfit.c \

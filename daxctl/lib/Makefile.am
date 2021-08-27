@@ -15,6 +15,8 @@ libdaxctl_la_SOURCES =\
 	../../util/sysfs.h \
 	../../util/log.c \
 	../../util/log.h \
+	../../util/parse-configs.h \
+	../../util/parse-configs.c \
 	libdaxctl.c
 
 libdaxctl_la_LIBADD =\

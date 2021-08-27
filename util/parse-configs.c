@@ -6,6 +6,23 @@
 #include <util/strbuf.h>
 #include <util/iniparser.h>
 
+int filter_conf_files(const struct dirent *dir)
+{
+	if (!dir)
+		return 0;
+
+	if (dir->d_type == DT_REG) {
+		const char *ext = strrchr(dir->d_name, '.');
+
+		if ((!ext) || (ext == dir->d_name))
+			return 0;
+		if (strcmp(ext, ".conf") == 0)
+			return 1;
+	}
+
+	return 0;
+}
+
 static void set_str_val(const char **value, const char *val)
 {
 	struct strbuf buf = STRBUF_INIT;
