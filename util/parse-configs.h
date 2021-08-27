@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0
 // Copyright (C) 2021, FUJITSU LIMITED. ALL rights reserved.
 
+#include <dirent.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
 #include <util/util.h>
 
 enum parse_conf_type {
@@ -10,6 +12,8 @@ enum parse_conf_type {
 	CONFIG_END,
 	MONITOR_CALLBACK,
 };
+
+int filter_conf_files(const struct dirent *dir);
 
 struct config;
 typedef int parse_conf_cb(const struct config *, const char *config_file);
