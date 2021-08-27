@@ -10,6 +10,7 @@ config.h: $(srcdir)/Makefile.am
 		"$(daxctl_modprobe_datadir)/$(daxctl_modprobe_data)"' >>$@ && \
 	echo '#define DAXCTL_MODPROBE_INSTALL \
 		"$(sysconfdir)/modprobe.d/$(daxctl_modprobe_data)"' >>$@
+	$(AM_V_GEN) echo '#define DAXCTL_CONF_DIR  "$(daxctl_confdir)"' >>$@
 
 daxctl_SOURCES =\
 		daxctl.c \
