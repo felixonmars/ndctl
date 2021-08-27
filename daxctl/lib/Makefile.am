@@ -13,6 +13,10 @@ libdaxctl_la_SOURCES =\
 	../../util/iomem.h \
 	../../util/sysfs.c \
 	../../util/sysfs.h \
+	../../util/strbuf.h \
+	../../util/strbuf.c \
+	../../util/wrapper.c \
+	../../util/usage.c \
 	../../util/log.c \
 	../../util/log.h \
 	../../util/parse-configs.h \

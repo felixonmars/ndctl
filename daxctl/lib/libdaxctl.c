@@ -17,6 +17,8 @@
 #include <util/log.h>
 #include <util/sysfs.h>
 #include <util/iomem.h>
+#include <util/strbuf.h>
+#include <util/parse-configs.h>
 #include <daxctl/libdaxctl.h>
 #include "libdaxctl-private.h"
 
@@ -37,6 +39,7 @@ struct daxctl_ctx {
 	struct log_ctx ctx;
 	int refcount;
 	void *userdata;
+	const char *configs;
 	int regions_init;
 	struct list_head regions;
 	struct kmod_ctx *kmod_ctx;
@@ -66,6 +69,40 @@ DAXCTL_EXPORT void daxctl_set_userdata(struct daxctl_ctx *ctx, void *userdata)
 	if (ctx == NULL)
 		return;
 	ctx->userdata = userdata;
+}
+
+DAXCTL_EXPORT void daxctl_set_configs(struct daxctl_ctx **ctx, char *conf_dir)
+{
+	struct dirent **namelist;
+	struct strbuf value = STRBUF_INIT;
+	int rc;
+
+	if ((!ctx) || (!conf_dir))
+		return;
+
+	rc = scandir(conf_dir, &namelist, filter_conf_files, alphasort);
+	if (rc == -1) {
+		perror("scandir");
+		return;
+	}
+
+	while (rc--) {
+		if (value.len)
+			strbuf_addstr(&value, " ");
+		strbuf_addstr(&value, conf_dir);
+		strbuf_addstr(&value, "/");
+		strbuf_addstr(&value, namelist[rc]->d_name);
+		free(namelist[rc]);
+	}
+	(*ctx)->configs = strbuf_detach(&value, NULL);
+	free(namelist);
+}
+
+DAXCTL_EXPORT const char *daxctl_get_configs(struct daxctl_ctx *ctx)
+{
+	if (ctx == NULL)
+		return NULL;
+	return ctx->configs;
 }
 
 /**
