@@ -95,6 +95,7 @@ int main(int argc, const char **argv)
 	rc = daxctl_new(&ctx);
 	if (rc)
 		goto out;
+	daxctl_set_configs_dir(&ctx, DAXCTL_CONF_DIR);
 	main_handle_internal_command(argc, argv, ctx, commands,
 			ARRAY_SIZE(commands), PROG_DAXCTL);
 	daxctl_unref(ctx);
