@@ -14,8 +14,10 @@
 #include <util/filter.h>
 #include <json-c/json.h>
 #include <json-c/json_util.h>
+#include <ndctl/libndctl.h>
 #include <daxctl/libdaxctl.h>
 #include <util/parse-options.h>
+#include <util/parse-configs.h>
 #include <ccan/array_size/array_size.h>
 
 static struct {
@@ -25,6 +27,7 @@ static struct {
 	const char *size;
 	const char *align;
 	const char *input;
+	bool check_config;
 	bool no_online;
 	bool no_movable;
 	bool force;
@@ -75,7 +78,9 @@ OPT_STRING('m', "mode", &param.mode, "mode", "mode to switch the device to"), \
 OPT_BOOLEAN('N', "no-online", &param.no_online, \
 	"don't auto-online memory sections"), \
 OPT_BOOLEAN('f', "force", &param.force, \
-		"attempt to offline memory sections before reconfiguration")
+		"attempt to offline memory sections before reconfiguration"), \
+OPT_BOOLEAN('C', "check-config", &param.check_config, \
+		"use config files to determine parameters for the operation")
 
 #define CREATE_OPTIONS() \
 OPT_STRING('s', "size", &param.size, "size", "size to switch the device to"), \
@@ -218,6 +223,130 @@ err:
 	return rc;
 }
 
+static int conf_string_to_bool(const char *str)
+{
+	if (!str)
+		return INT_MAX;
+	if (strncmp(str, "t", 1) == 0 ||
+			strncmp(str, "T", 1) == 0 ||
+			strncmp(str, "y", 1) == 0 ||
+			strncmp(str, "Y", 1) == 0 ||
+			strncmp(str, "1", 1) == 0)
+		return true;
+	if (strncmp(str, "f", 1) == 0 ||
+			strncmp(str, "F", 1) == 0 ||
+			strncmp(str, "n", 1) == 0 ||
+			strncmp(str, "N", 1) == 0 ||
+			strncmp(str, "0", 1) == 0)
+		return false;
+	return INT_MAX;
+}
+
+#define conf_assign_inverted_bool(p, conf_var) \
+do { \
+	if (conf_string_to_bool(conf_var) != INT_MAX) \
+		param.p = !conf_string_to_bool(conf_var); \
+} while(0)
+
+static int parse_config_reconfig_set_params(struct daxctl_ctx *ctx, const char *device,
+					    const char *uuid)
+{
+	const char *conf_online = NULL, *conf_movable = NULL;
+	const struct config configs[] = {
+		CONF_SEARCH("auto-online", "uuid", uuid, "mode", &param.mode, NULL),
+		CONF_SEARCH("auto-online", "uuid", uuid, "online", &conf_online, NULL),
+		CONF_SEARCH("auto-online", "uuid", uuid, "movable", &conf_movable, NULL),
+		CONF_END(),
+	};
+	const char *prefix = "./";
+	int rc;
+
+	rc = parse_configs_prefix(daxctl_get_configs(ctx), prefix, configs);
+	if (rc < 0)
+		return rc;
+
+	conf_assign_inverted_bool(no_online, conf_online);
+	conf_assign_inverted_bool(no_movable, conf_movable);
+
+	return 0;
+}
+
+static bool daxctl_ndns_has_device(struct ndctl_namespace *ndns,
+				    const char *device)
+{
+	struct daxctl_region *dax_region;
+	struct ndctl_dax *dax;
+
+	dax = ndctl_namespace_get_dax(ndns);
+	if (!dax)
+		return false;
+
+	dax_region = ndctl_dax_get_daxctl_region(dax);
+	if (dax_region) {
+		struct daxctl_dev *dev;
+
+		dev = daxctl_dev_get_first(dax_region);
+		if (dev) {
+			if (strcmp(daxctl_dev_get_devname(dev), device) == 0)
+				return true;
+		}
+	}
+	return false;
+}
+
+static int parse_config_reconfig(struct daxctl_ctx *ctx, const char *device)
+{
+	struct ndctl_namespace *ndns;
+	struct ndctl_ctx *ndctl_ctx;
+	struct ndctl_region *region;
+	struct ndctl_bus *bus;
+	struct ndctl_dax *dax;
+	int rc, found = 0;
+	char uuid_buf[40];
+	uuid_t uuid;
+
+	if (strcmp(device, "all") == 0)
+		return 0;
+
+	rc = ndctl_new(&ndctl_ctx);
+	if (rc < 0)
+		return rc;
+
+        ndctl_bus_foreach(ndctl_ctx, bus) {
+		ndctl_region_foreach(bus, region) {
+			ndctl_namespace_foreach(region, ndns) {
+				if (daxctl_ndns_has_device(ndns, device)) {
+					dax = ndctl_namespace_get_dax(ndns);
+					if (!dax)
+						continue;
+					ndctl_dax_get_uuid(dax, uuid);
+					found = 1;
+				}
+			}
+		}
+	}
+
+	if (!found) {
+		fprintf(stderr, "no UUID match for %s found in config files\n",
+			device);
+		return 0;
+	}
+
+	uuid_unparse(uuid, uuid_buf);
+	return parse_config_reconfig_set_params(ctx, device, uuid_buf);
+}
+
+static int parse_device_config(struct daxctl_ctx *ctx, const char *device,
+			       enum device_action action)
+{
+	switch (action) {
+	case ACTION_RECONFIG:
+		return parse_config_reconfig(ctx, device);
+	default:
+		return 0;
+	}
+}
+
 static const char *parse_device_options(int argc, const char **argv,
 		enum device_action action, const struct option *options,
 		const char *usage, struct daxctl_ctx *ctx)
@@ -278,6 +407,16 @@ static const char *parse_device_options(int argc, const char **argv,
 		daxctl_set_log_priority(ctx, LOG_DEBUG);
 	if (param.human)
 		flags |= UTIL_JSON_HUMAN;
+
+	/* Scan config file(s) for options. This sets param.foo accordingly */
+	if (param.check_config) {
+		rc = parse_device_config(ctx, argv[0], action);
+		if (rc) {
+			fprintf(stderr, "error parsing config file: %s\n",
+				strerror(-rc));
+			return NULL;
+		}
+	}
 
 	/* Handle action-specific options */
 	switch (action) {
