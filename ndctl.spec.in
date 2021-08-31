@@ -124,8 +124,11 @@ make check
 %defattr(-,root,root)
 %license LICENSES/preferred/GPL-2.0 LICENSES/other/MIT LICENSES/other/CC0-1.0
 %{_bindir}/daxctl
+%{_bindir}/daxdev-auto-reconfigure.sh
 %{_mandir}/man1/daxctl*
 %{_datadir}/daxctl/daxctl.conf
+%{_unitdir}/daxdev-reconfigure@.service
+%config %{_udevrulesdir}/90-daxctl-device.rules
 
 %files -n LNAME
 %defattr(-,root,root)
