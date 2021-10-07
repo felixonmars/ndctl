@@ -10,6 +10,14 @@
 
 #define CXL_EXPORT __attribute__ ((visibility("default")))
 
+
+struct cxl_nvdimm_br {
+	int id;
+	void *dev_buf;
+	size_t buf_len;
+	char *dev_path;
+};
+
 struct cxl_memdev {
 	int id, major, minor;
 	void *dev_buf;
@@ -23,6 +31,7 @@ struct cxl_memdev {
 	int payload_max;
 	size_t lsa_size;
 	struct kmod_module *module;
+	struct cxl_nvdimm_br *bridge;
 };
 
 enum cxl_cmd_query_status {
