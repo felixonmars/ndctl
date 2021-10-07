@@ -53,6 +53,10 @@ OPTIONS
 --idle::
 	Include idle (not enabled / zero-sized) devices in the listing
 
+-H::
+--health::
+	Include health information in the memdev listing
+
 include::human-option.txt[]
 
 include::verbose-option.txt[]
